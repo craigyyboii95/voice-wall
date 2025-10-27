@@ -22,7 +22,7 @@
       color: #555;
       margin-bottom: 2rem;
     }
-    input[type="file"], button {
+    input[type="file"], select, button {
       margin: 0.5rem;
       font-size: 1rem;
       padding: 0.6rem 1.2rem;
@@ -79,6 +79,14 @@
       font-size: 0.9rem;
       color: #444;
     }
+    .filter-buttons {
+      margin-top: 1rem;
+    }
+    .filter-buttons button {
+      margin: 0.2rem;
+      background: #f8b500;
+      color: #333;
+    }
   </style>
 </head>
 <body>
@@ -86,9 +94,25 @@
   <p class="tagline">Speak freely. Listen deeply. No names, just voices.</p>
 
   <input type="file" id="voiceInput" accept="audio/*" />
+  <select id="categorySelect">
+    <option value="Hope">Hope</option>
+    <option value="Grief">Grief</option>
+    <option value="Joy">Joy</option>
+    <option value="Anger">Anger</option>
+    <option value="Love">Love</option>
+  </select>
   <button onclick="uploadVoice()">Upload File</button>
   <button onclick="startRecording()">🎙️ Record Voice</button>
   <button onclick="stopRecording()">⏹️ Stop & Upload</button>
+
+  <div class="filter-buttons">
+    <button onclick="loadVoices()">All</button>
+    <button onclick="loadVoices('Hope')">Hope</button>
+    <button onclick="loadVoices('Grief')">Grief</button>
+    <button onclick="loadVoices('Joy')">Joy</button>
+    <button onclick="loadVoices('Anger')">Anger</button>
+    <button onclick="loadVoices('Love')">Love</button>
+  </div>
 
   <div class="wall" id="voiceWall"></div>
 
@@ -102,7 +126,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
   <script>
-  const firebaseConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyAff8KfAv3abwT4u_kRfVjqVyB3q3o-Y9I",
   authDomain: "voice-wall-2fb20.firebaseapp.com",
   projectId: "voice-wall-2fb20",
@@ -133,8 +157,10 @@
       mediaRecorder.onstop = () => {
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
         const id = Date.now();
+        const category = document.getElementById("categorySelect").value;
         const fileRef = storage.ref("voices/" + id + ".webm");
         fileRef.put(blob).then(() => {
+          db.ref("meta/" + id).set({ category });
           alert("Voice recorded and uploaded!");
           loadVoices();
         });
@@ -145,14 +171,16 @@
       const file = document.getElementById("voiceInput").files[0];
       if (!file) return alert("Please select a voice file.");
       const id = Date.now();
+      const category = document.getElementById("categorySelect").value;
       const fileRef = storage.ref("voices/" + id + "_" + file.name);
       fileRef.put(file).then(() => {
+        db.ref("meta/" + id).set({ category });
         alert("Voice uploaded anonymously!");
         loadVoices();
       });
     }
 
-    function loadVoices() {
+    function loadVoices(filter = null) {
       const wall = document.getElementById("voiceWall");
       wall.innerHTML = "";
       const now = Date.now();
@@ -161,22 +189,29 @@
           const id = item.name.split("_")[0].split(".")[0];
           const timestamp = parseInt(id);
           if (now - timestamp > 7 * 24 * 60 * 60 * 1000) {
-            item.delete(); // Auto-delete after 7 days
+            item.delete();
+            db.ref("meta/" + id).remove();
+            db.ref("comments/" + id).remove();
             return;
           }
-          item.getDownloadURL().then(url => {
-            const box = document.createElement("div");
-            box.className = "voice-box";
-            box.innerHTML = `
-              <audio controls src="${url}"></audio>
-              <div class="comments" id="comments-${id}"></div>
-              <div class="comment-input">
-                <input type="text" placeholder="Leave a comment..." id="input-${id}" />
-                <button onclick="postComment('${id}')">Send</button>
-              </div>
-            `;
-            wall.appendChild(box);
-            loadComments(id);
+          db.ref("meta/" + id).once("value", snap => {
+            const category = snap.val()?.category || "Uncategorized";
+            if (filter && category !== filter) return;
+            item.getDownloadURL().then(url => {
+              const box = document.createElement("div");
+              box.className = "voice-box";
+              box.innerHTML = `
+                <strong>${category}</strong>
+                <audio controls src="${url}"></audio>
+                <div class="comments" id="comments-${id}"></div>
+                <div class="comment-input">
+                  <input type="text" placeholder="Leave a comment..." id="input-${id}" />
+                  <button onclick="postComment('${id}')">Send</button>
+                </div>
+              `;
+              wall.appendChild(box);
+              loadComments(id);
+            });
           });
         });
       });
@@ -203,9 +238,3 @@
           container.appendChild(div);
         });
       });
-    }
-
-    window.onload = loadVoices;
-  </script>
-</body>
-</html>
