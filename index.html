@@ -6,16 +6,36 @@
   <title>Anonymous Voice Wall</title>
   <style>
     body {
-      font-family: sans-serif;
-      background: #f4f4f4;
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to bottom right, #fceabb, #f8b500);
+      color: #333;
       text-align: center;
       padding: 2rem;
     }
     h1 {
-      color: #333;
+      font-size: 2.2rem;
+      margin-bottom: 0.5rem;
     }
-    input[type="file"] {
-      margin: 1rem 0;
+    p.tagline {
+      font-style: italic;
+      color: #555;
+      margin-bottom: 2rem;
+    }
+    input[type="file"], button {
+      margin: 0.5rem;
+      font-size: 1rem;
+      padding: 0.6rem 1.2rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+    }
+    button {
+      background: #333;
+      color: white;
+    }
+    button:hover {
+      background: #555;
     }
     .wall {
       display: grid;
@@ -26,23 +46,63 @@
     .voice-box {
       background: white;
       padding: 1rem;
-      border-radius: 8px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    audio {
+      width: 100%;
+    }
+    .comments {
+      margin-top: 1rem;
+      text-align: left;
+    }
+    .comment {
+      background: #f9f9f9;
+      padding: 0.5rem;
+      margin-bottom: 0.5rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    .comment-input {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+    .comment-input input {
+      flex: 1;
+      padding: 0.4rem;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    .donate {
+      margin-top: 3rem;
+      font-size: 0.9rem;
+      color: #444;
     }
   </style>
 </head>
 <body>
   <h1>🎤 Anonymous Voice Wall</h1>
+  <p class="tagline">Speak freely. Listen deeply. No names, just voices.</p>
+
   <input type="file" id="voiceInput" accept="audio/*" />
-  <button onclick="uploadVoice()">Upload Voice</button>
+  <button onclick="uploadVoice()">Upload File</button>
+  <button onclick="startRecording()">🎙️ Record Voice</button>
+  <button onclick="stopRecording()">⏹️ Stop & Upload</button>
+
   <div class="wall" id="voiceWall"></div>
+
+  <div class="donate">
+    💛 Support this wall: <a href="https://www.buymeacoffee.com/yourname" target="_blank">Buy Me a Coffee</a>
+  </div>
 
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
   <script>
-const firebaseConfig = {
+  const firebaseConfig = {
   apiKey: "AIzaSyAff8KfAv3abwT4u_kRfVjqVyB3q3o-Y9I",
   authDomain: "voice-wall-2fb20.firebaseapp.com",
   projectId: "voice-wall-2fb20",
@@ -53,36 +113,99 @@ const firebaseConfig = {
 
     firebase.initializeApp(firebaseConfig);
     const storage = firebase.storage();
+    const db = firebase.database();
+
+    let mediaRecorder;
+    let audioChunks = [];
+
+    function startRecording() {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.start();
+        audioChunks = [];
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      });
+    }
+
+    function stopRecording() {
+      if (!mediaRecorder) return;
+      mediaRecorder.stop();
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const id = Date.now();
+        const fileRef = storage.ref("voices/" + id + ".webm");
+        fileRef.put(blob).then(() => {
+          alert("Voice recorded and uploaded!");
+          loadVoices();
+        });
+      };
+    }
 
     function uploadVoice() {
       const file = document.getElementById("voiceInput").files[0];
       if (!file) return alert("Please select a voice file.");
-
-      const fileRef = storage.ref("voices/" + Date.now() + "_" + file.name);
+      const id = Date.now();
+      const fileRef = storage.ref("voices/" + id + "_" + file.name);
       fileRef.put(file).then(() => {
         alert("Voice uploaded anonymously!");
-        loadVoices(); // Refresh wall
+        loadVoices();
       });
     }
 
     function loadVoices() {
       const wall = document.getElementById("voiceWall");
       wall.innerHTML = "";
+      const now = Date.now();
       storage.ref("voices").listAll().then(res => {
         res.items.forEach(item => {
+          const id = item.name.split("_")[0].split(".")[0];
+          const timestamp = parseInt(id);
+          if (now - timestamp > 7 * 24 * 60 * 60 * 1000) {
+            item.delete(); // Auto-delete after 7 days
+            return;
+          }
           item.getDownloadURL().then(url => {
             const box = document.createElement("div");
             box.className = "voice-box";
-            box.innerHTML = `<audio controls src="${url}"></audio>`;
+            box.innerHTML = `
+              <audio controls src="${url}"></audio>
+              <div class="comments" id="comments-${id}"></div>
+              <div class="comment-input">
+                <input type="text" placeholder="Leave a comment..." id="input-${id}" />
+                <button onclick="postComment('${id}')">Send</button>
+              </div>
+            `;
             wall.appendChild(box);
+            loadComments(id);
           });
         });
       });
     }
 
-    // Load voices on page load
+    function postComment(id) {
+      const input = document.getElementById("input-" + id);
+      const text = input.value.trim();
+      if (!text) return;
+      const commentRef = db.ref("comments/" + id).push();
+      commentRef.set({ text });
+      input.value = "";
+      loadComments(id);
+    }
+
+    function loadComments(id) {
+      const container = document.getElementById("comments-" + id);
+      container.innerHTML = "";
+      db.ref("comments/" + id).once("value", snapshot => {
+        snapshot.forEach(child => {
+          const div = document.createElement("div");
+          div.className = "comment";
+          div.textContent = child.val().text;
+          container.appendChild(div);
+        });
+      });
+    }
+
     window.onload = loadVoices;
   </script>
 </body>
-
 </html>
