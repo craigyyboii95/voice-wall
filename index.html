@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Anonymous Voice Wall</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f4f4f4;
+      text-align: center;
+      padding: 2rem;
+    }
+    h1 {
+      color: #333;
+    }
+    input[type="file"] {
+      margin: 1rem 0;
+    }
+    .wall {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    .voice-box {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <h1>🎤 Anonymous Voice Wall</h1>
+  <input type="file" id="voiceInput" accept="audio/*" />
+  <button onclick="uploadVoice()">Upload Voice</button>
+  <div class="wall" id="voiceWall"></div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+  <script>
+    // 🔥 Replace with your Firebase config
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const storage = firebase.storage();
+
+    function uploadVoice() {
+      const file = document.getElementById("voiceInput").files[0];
+      if (!file) return alert("Please select a voice file.");
+
+      const fileRef = storage.ref("voices/" + Date.now() + "_" + file.name);
+      fileRef.put(file).then(() => {
+        alert("Voice uploaded anonymously!");
+        loadVoices(); // Refresh wall
+      });
+    }
+
+    function loadVoices() {
+      const wall = document.getElementById("voiceWall");
+      wall.innerHTML = "";
+      storage.ref("voices").listAll().then(res => {
+        res.items.forEach(item => {
+          item.getDownloadURL().then(url => {
+            const box = document.createElement("div");
+            box.className = "voice-box";
+            box.innerHTML = `<audio controls src="${url}"></audio>`;
+            wall.appendChild(box);
+          });
+        });
+      });
+    }
+
+    // Load voices on page load
+    window.onload = loadVoices;
+  </script>
+</body>
+</html>
